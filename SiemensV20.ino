@@ -1,44 +1,30 @@
 #include <ModbusMaster.h>               //Library for using ModbusMaster
-#include <PubSubClient.h>               //Library for MQTT 
+#include <SoftwareSerial.h>             //Library for using additional serial port
 
+#define MAX485_DE      5
+#define MAX485_RE_NEG  16
+#define Adress_to_read_speed  23 //Freq,Speed,current,torque (Hz,RPM,A,Nm)
+#define Adress_to_read_erros  54 //Erros
+#define Quantity_of_bits  4
+#define Quantity_of_bits_for_error  4
 
-int Adress_to_read=23;                 //Adress to read
-int Quant_to_read=5;                   //number of register to read
-int Adress_to_read_errors=54;          //Adress for read errors
-int Quant_to_read_errors=5;            //Number of errors to read
-int Slave_inicial=10;
-int Slave_final=0;
-int slave=Slave_inicial;
-String marca="Siemens"; //Mitsubishi  , Siemens
-const char* topico_mqtt="slave";
+//Config for internet connection and Mqtt publisher
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+WiFiClient TCP_Client; // Objecto do tipo TCP
+PubSubClient client(TCP_Client); // Objecto do tipo cliente MQTT
+String Network_name ="MEO-661930";
+String Network_pass ="dfb8882917";
+IPAddress Ip_Broker_Mqtt(192, 168, 1, 101);
+int Port_Broker = 1883;
 
-
-# define delay_measures 400
-#define MAX485_DE      19
-#define MAX485_RE_NEG  18
+SoftwareSerial mySerial(4, 0); //software serial 12->Rx 13->Tx 
 
 ModbusMaster node;                    //object node for class ModbusMaster
 
-// Load Wi-Fi library
-#include <WiFi.h>
+int Delay_on_acquisition = 2000;
 
-// Replace with your network credentials
-const char* ssid     = "Riablades";
-const char* password = "W1relessP@ssw0rd";
-
-// Set your Static IP address
-IPAddress local_IP(172, 31, 4, 218);
-// Set your Gateway IP address
-IPAddress gateway(172, 31, 0, 254);
-IPAddress subnet(255, 255, 0, 0);
-
-// Add your MQTT Broker IP address, example:
-//const char* mqtt_server = "192.168.1.8144";
-const char* mqtt_server = "172.31.4.12";
-WiFiClient espClient; 
-PubSubClient client(espClient);
-
-
+//--------------------------------END OF CONFIGS,INCLUDES,BLABLABLA-----------------------------------------
 void preTransmission()            //Function for setting stste of Pins DE & RE of RS-485
 {
   digitalWrite(MAX485_RE_NEG, 1);             
@@ -51,149 +37,140 @@ void postTransmission()
   digitalWrite(MAX485_DE, 0);
 }
 
-
-
-
-
-
 void setup()
-{
+{ //Iniciate serial ports
+  Serial.begin(9600);             //Baud Rate of Serial as 115200 
+  mySerial.begin(9600);           //Baud Rate of SoftwareSerial as 115200 
   
-  
+//   // WiFi network
+//  Serial.println(); Serial.print("Connecting to ");Serial.println(Network_name);
+//  WiFi.mode(WIFI_STA);
+//  WiFi.begin(Network_name, Network_pass);
+//  while (WiFi.status() != WL_CONNECTED) {
+//  delay(500); Serial.print(".");}
+//  Serial.println();
+//  Serial.print("The ESP is configurated with this ip: ");
+//  Serial.println(WiFi.localIP());
+
+ // Config the GPIOS to ModBus 
   pinMode(MAX485_RE_NEG, OUTPUT);
   pinMode(MAX485_DE, OUTPUT);
-  
-  
-  digitalWrite(MAX485_RE_NEG, 0);
-  digitalWrite(MAX485_DE, 0);
+//  digitalWrite(MAX485_RE_NEG, 0);
+//  digitalWrite(MAX485_DE, 0);
 
-  Serial.begin(9600,SERIAL_8N2);             //Baud Rate as 115200
-  Serial2.begin(9600,SERIAL_8N2);
-  node.begin(slave, Serial2);            //Slave ID as 1
+Serial.println("max config");
+
+
+  // Config for ModBusMaster
+  node.begin(1, mySerial);            //Slave ID as 1
   node.preTransmission(preTransmission);         //Callback for configuring RS-485 Transreceiver correctly
-  node.postTransmission(postTransmission);
+  node.postTransmission(postTransmission);      //Callback for configuring RS-485 Receive correctly
 
-  // Configures static IP address
-  if (!WiFi.config(local_IP, gateway, subnet)) {
-    Serial.println("STA Failed to configure");
-  }
-  
-  // Connect to Wi-Fi network with SSID and password
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  // Print local IP address and start web server
-  Serial.println("");
-  Serial.println("WiFi connected.");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
+ Serial.println("modbus configured");
 
-  // Connect to mqtt server
-  client.setServer(mqtt_server, 1883);
-  client.connect("ESP32");
-  if (client.connect("ESP32")) {
-      Serial.println("connected");
-
+//    // MQTT
+// client.setServer(Ip_Broker_Mqtt, Port_Broker); // The MQTT, Broker, stay on pc “192.168.1.2”
+// // client.setCallback(callback);
+// client.connect("ESP8266"); // O ESP need to register in broker. For any new equipment new name
 }
-}
-
-
-
 
 void loop()
 {
-if (!client.connect("ESP32")) {
-  client.connect("ESP32");
-  delay(500);
-}
-
-  
-  uint8_t ResultadoLectura;
   static uint32_t i;
-  String Data[Quant_to_read],Data_Errors[Quant_to_read_errors],topic;
-  char data_mqtt[16],topic_mqttchr[18];
+   uint8_t j, result;
+  String data[Quantity_of_bits],Data_Errors[Quantity_of_bits_for_error];
+  char data_mqtt[16];
+
   i++;
-  topic="Slave " + String(slave) + " Leituras";
-
-node.begin(slave, Serial2);            //Slave ID as 1
-
-  
 // set word 0 of TX buffer to least-significant word of counter (bits 15..0)
 node.setTransmitBuffer(0, lowWord(i));
 
 // set word 1 of TX buffer to most-significant word of counter (bits 31..16)
 node.setTransmitBuffer(1, highWord(i));
-  
-  ResultadoLectura = node.readHoldingRegisters(Adress_to_read,Quant_to_read);        //Writes value to 0x40000 holding register
-  Serial.println("Leituras:------------>");
-  //if (ResultadoLectura == node.ku8MBSuccess || ResultadoLectura!= 226 )
-  if (ResultadoLectura == node.ku8MBSuccess  )
-  {
-    for (int j = 0; j < Quant_to_read; j++)
-    {
-      Data[j] = node.getResponseBuffer(j);
-      Serial.println(node.getResponseBuffer(j));
-      Data[j].toCharArray(data_mqtt,16);
-      //client.publish(topico_mqtt+slave, data_mqtt);
-      topic.toCharArray(topic_mqttchr,18);
-      client.publish(topic_mqttchr, data_mqtt);
-      //Serial.println("Publish on: "+String(topico_mqtt+slave));
-      Serial.println("Publish on: "+ String(topic_mqttchr));
 
-    }
-  }
-  delay(500);
-  Serial.println("Errors:-------------->");
-  topic="Slave " + String(slave) + " Erros";
-   ResultadoLectura = node.readHoldingRegisters(Adress_to_read_errors,Quant_to_read_errors);        //Writes value to 0x40000 holding register
-  //Serial.println(ResultadoLectura);
-  //if (ResultadoLectura == node.ku8MBSuccess || ResultadoLectura!= 226 )
-  if (ResultadoLectura == node.ku8MBSuccess  )
-  {
-    for (int j = 0; j < Quant_to_read_errors; j++)
-    {
-      Data_Errors[j] = node.getResponseBuffer(j);
-      Serial.println(node.getResponseBuffer(j));
-      Data_Errors[j].toCharArray(data_mqtt,16);
-      //client.publish(topico_mqtt+slave, data_mqtt);
-       topic.toCharArray(topic_mqttchr,16);
-      client.publish(topic_mqttchr, data_mqtt);
-      //Serial.println("Publish on: "+String(topico_mqtt+slave));
-      Serial.println("Publish on: "+ String(topic_mqttchr));
-
-    }
-  }
-  Serial.print("Slave nº ");
-  Serial.println(slave);
-  Serial.println("------------------------------------------------------------------");
-
-// Serial2.flush();
-// delay(20);
-
-
-slave = slave-1;
-if (slave==Slave_final){
-  slave=Slave_inicial;
-}
- 
-if(slave==10 || slave == 9 || slave == 8 || slave == 7 || slave == 6 || slave == 5 || slave == 4 || slave == 3)
+ result = node.readHoldingRegisters(Adress_to_read_speed, Quantity_of_bits);
+// do something with data if read is successful
+if (result == node.ku8MBSuccess)
 {
-  Adress_to_read=23;
-  Quant_to_read=4;
-  Adress_to_read_errors=54;
-  Quant_to_read_errors=5;
-  marca="Siemens";
-}else{
-  Adress_to_read=201;
-  Quant_to_read=3;
-  Adress_to_read_errors=501;
-  Quant_to_read_errors=5;
-  marca="Mitsubishi";
+    for (j = 0; j < Quantity_of_bits; j++)
+  {
+    data[j] = node.getResponseBuffer(j);
+    if(j==0){
+    Serial.print("Freq Output = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("Freq", data_mqtt);
+    }
+    if(j==1){
+    Serial.print("Speed = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("Speed", data_mqtt);
+    }
+    if(j==2){
+    Serial.print("Current = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("Current", data_mqtt);
+    }
+    if(j==3){
+    Serial.print("Torque = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("Torque", data_mqtt);
+    }
 }
 
- delay(delay_measures);
+delay(500);
+
+result = node.readHoldingRegisters(Adress_to_read_erros, Quantity_of_bits_for_error);
+// do something with data if read is successful
+if (result == node.ku8MBSuccess)
+{
+    for (j = 0; j < Quantity_of_bits_for_error; j++)
+  {
+    data[j] = node.getResponseBuffer(j);
+    if(j==0){
+    Serial.print("Last Fault = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("last_fault", data_mqtt);
+    }
+    if(j==1){
+    Serial.print("1. Fault = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("1.fault", data_mqtt);
+    }
+    if(j==2){
+    Serial.print("2. Fault = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("2.fault", data_mqtt);
+    }
+    if(j==3){
+    Serial.print("3. Fault = ");
+    Serial.println(data[j]);
+//    data[j].toCharArray(data_mqtt,16);
+//    client.publish("3.fault", data_mqtt);
+    }
 }
+}
+Serial.println("-------------------------------------------------------------------------------------------");
+delay(Delay_on_acquisition);
+}else{
+  Serial.print("nothing done!");
+}
+}
+
+
+//  for (j = 0; j < Quantity_of_bits; j++)
+//  {
+//    data[j] = node.getResponseBuffer(j);
+//    if(j==0){
+//    Serial.print("Data presente na posição ");Serial.print(Adress_to_read);
+//    Serial.print(" e consecutivas ");Serial.print(Quantity_of_bits);
+//    Serial.println(" posições"); Serial.print(j);
+//    }
+//    Serial.println(data[j]);
+//  }
