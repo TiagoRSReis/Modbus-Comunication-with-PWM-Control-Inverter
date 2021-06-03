@@ -2,10 +2,10 @@
 #include <PubSubClient.h>               //Library for MQTT 
 
 
-int Adress_to_read=23;
-int Quant_to_read=5;
-int Adress_to_read_errors=54;
-int Quant_to_read_errors=5;
+int Adress_to_read=23;                 //Adress to read
+int Quant_to_read=5;                   //number of register to read
+int Adress_to_read_errors=54;          //Adress for read errors
+int Quant_to_read_errors=5;            //Number of errors to read
 int Slave_inicial=10;
 int Slave_final=0;
 int slave=Slave_inicial;
