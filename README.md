@@ -2,7 +2,7 @@
 Arduino code for communication with equipment that use ModBus
 
 # Real Usage
-I used this code for communication with Siemens PWM control inverter model V20
+I used this code for communication with Siemens PWM control inverter model V20. I use a ESP8266 and a MAX485 for the conversion
 
 # Credits
 Doc Walker with ModBusMaster
