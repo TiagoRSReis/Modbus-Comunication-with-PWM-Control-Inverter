@@ -6,7 +6,9 @@ I used this code for communication with Siemens PWM control inverter model V20
 
 # Credits
 Doc Walker with ModBusMaster
+
 Github:https://github.com/4-20ma/ModbusMaster
+
 Documentation: https://4-20ma.io/2016/09/11/modbus-master-100-released/
 
 Nick O'Leary with PubSubClient
